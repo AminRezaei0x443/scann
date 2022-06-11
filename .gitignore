@@ -6,6 +6,9 @@ __pycache__/
 # Jetbrains
 .idea/
 
+# VSCode
+.vscode/
+
 # C extensions
 *.so
 

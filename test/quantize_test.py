@@ -1,8 +1,8 @@
 import unittest
 
 import jax.random as jrnd
-from scann import vector_quantize, product_quantize
-from .util import timeit
+from scann import VectorQuantizer, ProductQuantizer
+from test.util import timeit
 
 
 class QuantizationTesting(unittest.TestCase):
@@ -12,10 +12,10 @@ class QuantizationTesting(unittest.TestCase):
 
     @timeit
     def test_vq(self):
-        vector_quantize(self.data, 4, 0.2, tol=1e-4)
-        pass
+        vq = VectorQuantizer(4, 0.2)
+        vq.fit(self.data, tol=1e-4)
 
     @timeit
     def test_pq(self):
-        product_quantize(self.data, 4, 10, 0.2)
-        pass
+        pq = ProductQuantizer(4, 10, 0.2)
+        pq.fit(self.data)
