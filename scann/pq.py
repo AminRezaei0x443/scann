@@ -2,8 +2,7 @@
 import jax.numpy as jnp
 from jax.experimental.sparse import BCOO
 import jax.scipy.sparse.linalg as jla
-from jax import jit, lax, vmap
-from functools import partial
+from jax import lax, vmap
 from scann import VectorQuantizer, anisotropic_weights, loss_function, Quantizer
 
 
@@ -27,12 +26,10 @@ class ProductQuantizer(Quantizer):
         B_i = BCOO((values, indices), shape=(self.f, self.f * self.k))
         return B_i
     
-    # @partial(jit, static_argnums=(0,))
     def assign(self, c, x, max_assign_steps = 3):
         a_iter = 0
         a_gh = True
         # v-quantized
-        # x = self.nX[i_n]
         q_x = x
         last_l = 0
         while a_gh:
@@ -43,27 +40,18 @@ class ProductQuantizer(Quantizer):
                 for i_k in range(self.k):
                     # we want i_m-th codebook and i_k-th codeword
                     i_s = i_k * (self.f // self.m) + (self.f // self.m) * self.k * i_m
-                    i_e = i_s + (self.f // self.m)
                     code_word = lax.dynamic_slice(c, (i_s,), (self.f // self.m,))
-                    # code_word = self.c[i_s:i_e]
 
                     n_x = lax.dynamic_update_slice(q_x, code_word, (i_m * (self.f // self.m),))
-                    # n_x = q_x.at[i_m * (self.f // self.m) : (i_m + 1) * (self.f // self.m)].set(code_word)
                     l = loss_function(x, n_x, self.weights, normalize=False)
                     k_losses = jnp.append(k_losses, l)
-                    # k_losses.append(l)
                 s_k = jnp.argmin(k_losses)
                 si_s = s_k * (self.f // self.m) + (self.f // self.m) * self.k * i_m
-                si_e = si_s + (self.f // self.m)
 
                 code_word = lax.dynamic_slice(c, (si_s,), (self.f // self.m,))
                 q_x = lax.dynamic_update_slice(q_x, code_word, (i_m * (self.f // self.m),))
-                # q_x = q_x.at[i_m * (self.f // self.m) : (i_m + 1) * (self.f // self.m)].set(self.c[si_s:si_e])
                 # update assignment
                 assignment_row = assignment_row.at[i_m].set(s_k)
-                # assignment_row[i_m] = s_k
-                # self.I = lax.dynamic_update_slice(self.I, jnp.array([[s_k]], dtype=jnp.int16), (i_n, i_m))
-                # I = I.at[i_n, i_m].set(s_k)
                 last_l = k_losses[s_k]
                 pass
             a_iter += 1
@@ -77,7 +65,6 @@ class ProductQuantizer(Quantizer):
         inner_m = (h_p - h_o) * (fx.T @ fx) + h_o * jnp.eye(x.shape[0])
         lm = B_i.T @ inner_m
         r = lm @ B_i
-        # return BCOO.fromdense(r), BCOO.fromdense(h_p * (B_i.T @ fx.T))
         return r, h_p * (B_i.T @ fx.T)
 
     def fit(self, X, tol=1e-2, max_iter=100):
@@ -120,8 +107,6 @@ class ProductQuantizer(Quantizer):
             batch_build = vmap(self.calculate_B_i, (0,), 0)
             B = batch_build(self.I)
 
-            # BTB = jnp.zeros((self.f * self.k, self.f * self.k))
-            # BTx = jnp.zeros((self.f * self.k, 1))
             print("calculating BTB, BTx ...")
             batch_calc = vmap(self.calculate_BTx, (0, 0), (0, 0))
             BTBb, BTxb = batch_calc(B, nX)
