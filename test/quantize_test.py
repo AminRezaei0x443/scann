@@ -19,3 +19,10 @@ class QuantizationTesting(unittest.TestCase):
     def test_pq(self):
         pq = ProductQuantizer(4, 10, 0.2)
         pq.fit(self.data)
+
+    @timeit
+    def test_pq_large(self):
+        k = jrnd.PRNGKey(0)
+        data = jrnd.uniform(k, shape=(500, 768))
+        pq = ProductQuantizer(16, 16, 0.2)
+        pq.fit(data)

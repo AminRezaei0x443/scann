@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrnd
 from scann import loss_function, anisotropic_weights, Quantizer
+from scann.logger import Logger
 import jax.experimental.host_callback as hcb
 
 
@@ -27,7 +28,7 @@ class VectorQuantizer(Quantizer):
         nc, _ = jla.cg(A, b)
         return nc 
 
-    def find_center(self, x, C, normalize=False):
+    def find_center(self, x, C):
         losses = self.batch_loss(x, C, self.weights)
         # in case of need fore debugging in jaxpr functions (jax.map, jax.jit, ...)
         # hcb.id_print(losses)
@@ -51,10 +52,12 @@ class VectorQuantizer(Quantizer):
         loss = 0
         while go_ahead:
             # partition assignment
+            Logger.log(self, "Assigning data points to centers ...")
             I_c, losses = self.batch_find_center(nX, C)
             # loss
             n_loss = losses.sum()
-            print("loss ->", n_loss)
+            Logger.log(self, "Loss after assignments -> %f", n_loss)
+            Logger.log(self, "Optimizing centers ...")
             # codebook optimization
             masks = []
             nzs = []

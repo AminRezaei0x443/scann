@@ -10,7 +10,7 @@ def anisotropic_weights(T, n_dim):
     h_par = 1 - h_orth
     return eta, h_orth, h_par
 
-def loss_function(x, x_q, weights, normalize=True):
+def loss_function(x, x_q, weights, normalize=False):
     _, h_o, h_p = weights
     d = x - x_q
     r_p = jnp.dot(d, x) * x 
@@ -20,7 +20,7 @@ def loss_function(x, x_q, weights, normalize=True):
     l = h_p * jnp.dot(r_p, r_p) + h_o * jnp.dot(r_o, r_o)
     return l
 
-def loss_function_batch(X, Xq, weights, normalize=True):
+def loss_function_batch(X, Xq, weights, normalize=False):
     _, h_o, h_p = weights
     n, _ = X.shape
     D = X - Xq

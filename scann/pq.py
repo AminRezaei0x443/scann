@@ -6,6 +6,7 @@ from jax import lax, vmap, jit
 from functools import partial
 import jax.random as jrnd
 from scann import VectorQuantizer, anisotropic_weights, loss_function, Quantizer
+from scann.logger import Logger
 
 
 class ProductQuantizer(Quantizer):
@@ -90,19 +91,23 @@ class ProductQuantizer(Quantizer):
         # normalize 
         nX = data / jnp.linalg.norm(data, axis=1, keepdims=True)
         # init 
-        # C: k x f
+        # C: k x f      
+        Logger.log(self, "Initializing codebook centers ...")
         if vq_impl:
+            Logger.log(self, "Using VectorQuantizer to init centers ...")
             vq = VectorQuantizer(self.k, self.T)
             vq.fit(data, tol, max_iter)
             C = vq.C
             self.c = C.reshape(-1)
         else:
             if self.m == 1:
+                Logger.log(self, "Choosing centers among data ...")
                 key = jrnd.PRNGKey(0)
                 key, sub_key = jrnd.split(key)
                 C = jrnd.choice(sub_key, nX, shape=(self.k,), replace=False)
                 self.c = C.reshape(-1)
             else:
+                Logger.log(self, "Using ProductQuantizer to init centers ...")
                 pq = ProductQuantizer(1, self.k, self.T, max_assign_steps=1)
                 pq.fit(data, tol, max_iter)
                 self.c = pq.c
@@ -114,27 +119,31 @@ class ProductQuantizer(Quantizer):
         loss = 0
 
         while go_ahead:
-            # assingment step            
-            print("assigning ...")
+            # assingment step      
+            Logger.log(self, "Assigning data points to centers ...")
             a_l, self.I = self.batch_assign(self.c, nX)
             n_loss = jnp.sum(a_l)
-            print("loss after assigns ->", n_loss)
+            Logger.log(self, "Loss after assignments -> %f", n_loss)
             
             # codeword update step
             # Build B Matrices -> Sparse
             # [i_k, o, i_m]
             # i_x -> pos
             # i_k * i_m * f//m , + f//m
-            print("creating B_i ...")
+            Logger.log(self, "Creating B Matrices ...")
             B = self.batch_build(self.I)
 
-            print("calculating BTB, BTx ...")
+            # Shape hints
+            # BTB = jnp.zeros((self.f * self.k, self.f * self.k))
+            # BTx = jnp.zeros((self.f * self.k, 1))
+            Logger.log(self, "Computing BTB, BTx Matrices ...")
+            # TODO: Memory Optimization
             BTBb, BTxb = self.batch_calc(B, nX)
             BTB = BTBb.sum(axis=0)
             BTx = BTxb.sum(axis=0)
             
             # update centers
-            print("cg ...")
+            Logger.log(self, "Finding centers using conjugate gradient ...")
             c, _ = jla.cg(BTB, BTx)
             self.c = c.reshape(-1)
             
