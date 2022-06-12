@@ -2,7 +2,8 @@ import jax.scipy.sparse.linalg as jla
 import jax
 import jax.numpy as jnp
 import jax.random as jrnd
-from scann import loss_function, anisotropic_weights, loss_function_batch, Quantizer
+from scann import loss_function, anisotropic_weights, Quantizer
+from scann.logger import Logger
 import jax.experimental.host_callback as hcb
 
 
@@ -10,11 +11,15 @@ class VectorQuantizer(Quantizer):
     def __init__(self, k, T):
         self.k = k
         self.T = T
-    
-    def optimize_center(self, X_j):
+        # compile functions
+        self.batch_optimize_center = jax.jit(jax.vmap(self.optimize_center, (0, 0), 0))
+        self.batch_find_center = jax.jit(jax.vmap(self.find_center, (0, None), (0, 0)))
+        self.batch_loss = jax.jit(jax.vmap(loss_function, (None, 0, None), 0))
+
+    def optimize_center(self, X_j, nz):
         _, h_o, h_p = self.weights
         _, f = X_j.shape
-        A = (jnp.eye(f) * len(X_j) * h_o)
+        A = (jnp.eye(f) * nz * h_o)
         A += (h_p - h_o) * (X_j.T @ X_j)
 
         b = h_p * jnp.sum(X_j, axis=0)
@@ -22,17 +27,17 @@ class VectorQuantizer(Quantizer):
         nc, _ = jla.cg(A, b)
         return nc 
 
-    def find_center(self, x, C, normalize=True):
-        losses = jax.lax.map(lambda c: loss_function(x, c, self.weights, normalize=normalize), C)
+    def find_center(self, x, C):
+        losses = self.batch_loss(x, C, self.weights)
         # in case of need fore debugging in jaxpr functions (jax.map, jax.jit, ...)
         # hcb.id_print(losses)
         i = jnp.argmin(losses)
-        return i
+        return i, losses[i]
 
     def fit(self, X, tol=1e-2, max_iter=100):
         data = X
         self.n, self.f = data.shape
-        self.weights = eta, h_o, h_p = anisotropic_weights(self.T, self.f)
+        self.weights = anisotropic_weights(self.T, self.f)
         # normalize 
         nX = data / jnp.linalg.norm(data, axis=1, keepdims=True)
         # init 
@@ -46,16 +51,24 @@ class VectorQuantizer(Quantizer):
         loss = 0
         while go_ahead:
             # partition assignment
-            I_c = jax.lax.map(lambda x: self.find_center(x, C, normalize=False), nX)
+            Logger.log(self, "Assigning data points to centers ...")
+            I_c, losses = self.batch_find_center(nX, C)
             # loss
-            X_q = jax.lax.map(lambda i: C[i, :], I_c)
-            n_loss = loss_function_batch(nX, X_q, (eta, h_o, h_p), normalize=False)
-            print("loss ->", n_loss)
+            n_loss = losses.sum()
+            Logger.log(self, "Loss after assignments -> %f", n_loss)
+            Logger.log(self, "Optimizing centers ...")
             # codebook optimization
-            
+            masks = []
+            nzs = []
             for j in range(self.k):
-                X_j = nX[I_c == j]
-                C = C.at[j].set(self.optimize_center(X_j))
+                mask = jnp.repeat((I_c == j).reshape(self.n, 1), self.f, axis=1)
+                X_j = nX * mask
+                masks.append(X_j)
+                nzs.append((I_c == j).sum())
+
+            masks = jnp.stack(masks)
+            nzs = jnp.stack(nzs)
+            C = self.batch_optimize_center(masks, nzs)
 
             iters += 1
             go_ahead = (abs(n_loss - loss) > tol) and (iters < max_iter)
@@ -63,4 +76,5 @@ class VectorQuantizer(Quantizer):
         self.C = C
 
     def quantize(self, x):
-        return super().quantize(x)
+        i, l = self.find_center(x, self.C)
+        return i, l
