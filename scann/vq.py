@@ -1,4 +1,3 @@
-from functools import partial
 import jax.scipy.sparse.linalg as jla
 import jax
 import jax.numpy as jnp
@@ -77,4 +76,5 @@ class VectorQuantizer(Quantizer):
         self.C = C
 
     def quantize(self, x):
-        return super().quantize(x)
+        i, l = self.find_center(x, self.C)
+        return i, l

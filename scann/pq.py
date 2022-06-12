@@ -152,4 +152,4 @@ class ProductQuantizer(Quantizer):
             loss = n_loss
 
     def quantize(self, x):
-        return super().quantize(x)
+        return self.assign(self.c, x)
